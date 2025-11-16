@@ -61,7 +61,7 @@ defenders:
 
   - type: AESA
     x: 100
-    y: 110                                  # North of runway (avoids aiming south penalty)
+    y: 105                                  # North of runway (avoids aiming south penalty)
 
 # Defender type statistics (REAL-WORLD SCALED)
 defender_stats:
@@ -80,7 +80,7 @@ defender_stats:
     base_probability_of_kill: 0.70      # Base P(kill) (simplified - no modifiers)
 
   AESA:
-    max_range: 5.0                      # 500m microwave range
+    max_range: 20.0                     # 500m microwave range
     ammo: 999                           # Effectively unlimited
     reload_time: 20                     # 20 seconds - long reload
     shot_speed: 0.0                     # Instant effect (not used)

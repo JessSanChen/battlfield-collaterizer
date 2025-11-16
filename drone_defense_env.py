@@ -543,8 +543,12 @@ class DroneDefenseEnv(gym.Env):
                     projectile.active = False
                     aesa_destroyed_projectiles += 1
 
-            # Track cone activation for visualization
-            self.active_aesa_cones.append((defender.id, defender.orientation, self.engagement_display_time))
+            # Track cone activation for visualization (longer persistence for visibility)
+            self.active_aesa_cones.append((defender.id, defender.orientation, 30))  # 30 timesteps = 30 seconds
+
+            # Debug output
+            print(f"  🔥 AESA D{defender.id} FIRED! Orientation: {defender.orientation:.1f}° | "
+                  f"Destroyed: {aesa_destroyed_attackers} attackers, {aesa_destroyed_projectiles} projectiles")
 
             # Consume ammo and trigger reload
             defender.shoot()
@@ -795,18 +799,25 @@ class DroneDefenseEnv(gym.Env):
                 # Wedge uses counterclockwise angles from east (0°)
                 theta1 = orientation - half_angle
                 theta2 = orientation + half_angle
+                mid_angle_rad = np.radians(orientation)  # Calculate this first
 
                 cone_wedge = patches.Wedge(
                     (aesa_defender.x, aesa_defender.y),
                     aesa_defender.max_range,
                     theta1, theta2,
-                    facecolor=cone_color, edgecolor=cone_color,
-                    alpha=0.3, linewidth=2
+                    facecolor=cone_color, edgecolor='red',  # Red edge for visibility
+                    alpha=0.6, linewidth=3  # Increased opacity and thicker edge
                 )
                 self.ax.add_patch(cone_wedge)
 
+                # Draw a bright line from emitter in the direction of fire for extra visibility
+                direction_line_end_x = aesa_defender.x + aesa_defender.max_range * np.cos(mid_angle_rad)
+                direction_line_end_y = aesa_defender.y + aesa_defender.max_range * np.sin(mid_angle_rad)
+                self.ax.plot([aesa_defender.x, direction_line_end_x],
+                           [aesa_defender.y, direction_line_end_y],
+                           color='red', linewidth=3, linestyle='-', alpha=0.8)
+
                 # Add label
-                mid_angle_rad = np.radians(orientation)
                 label_distance = aesa_defender.max_range * 0.6
                 label_x = aesa_defender.x + label_distance * np.cos(mid_angle_rad)
                 label_y = aesa_defender.y + label_distance * np.sin(mid_angle_rad)
