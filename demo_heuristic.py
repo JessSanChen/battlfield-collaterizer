@@ -16,10 +16,10 @@ def run_heuristic_demo(num_episodes: int = 3, render: bool = True):
     """
     # Create environment with heuristic mode
     env = DroneDefenseEnv(
-        map_size=(100, 100),
-        safe_zone=(40, 40, 60, 60),
-        max_attackers=15,
-        max_timesteps=200,
+        # map_size=(100, 100),
+        # safe_zone=(40, 40, 60, 60),
+        # max_attackers=15,
+        # max_timesteps=200,
         use_attention=False,  # Use heuristic
         render_mode='human' if render else None
     )

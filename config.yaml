@@ -1,0 +1,122 @@
+# Drone Defense Configuration File
+# All parameters for easy tuning during hackathon
+
+# ============================================================================
+# MAP CONFIGURATION
+# ============================================================================
+map:
+  width: 200
+  height: 200
+
+safe_zone:
+  x_min: 90
+  y_min: 90
+  x_max: 110
+  y_max: 110
+
+# ============================================================================
+# EPISODE CONFIGURATION
+# ============================================================================
+episode:
+  max_timesteps: 300                    # Maximum episode length
+  max_total_attackers: 30               # Total attackers that can spawn per episode (new!)
+  max_concurrent_attackers: 10          # Maximum attackers alive at once
+
+# ============================================================================
+# DEFENDER CONFIGURATIONS
+# ============================================================================
+defenders:
+  # List of defenders to spawn at episode start
+  # Type can be: SAM or KINETIC
+  - type: SAM
+    x: 70
+    y: 50
+
+  - type: SAM
+    x: 30
+    y: 50
+
+  - type: SAM
+    x: 50
+    y: 30
+
+  - type: KINETIC
+    x: 50
+    y: 20
+
+  - type: KINETIC
+    x: 50
+    y: 70
+
+# Defender type statistics
+defender_stats:
+  SAM:
+    max_range: 40.0                     # Maximum engagement range
+    ammo: 10                            # Starting ammunition
+    reload_time: 3                      # Timesteps to reload
+    shot_speed: 15.0                    # Projectile speed (units/timestep)
+    base_probability_of_kill: 0.85      # Base P(kill) before distance/speed factors
+
+  KINETIC:
+    max_range: 30.0
+    ammo: 20
+    reload_time: 1
+    shot_speed: 8.0
+    base_probability_of_kill: 0.70
+
+# ============================================================================
+# ATTACKER SPAWN CONFIGURATION
+# ============================================================================
+attacker_spawn:
+  initial_count: 4                      # Number of attackers at episode start
+  spawn_probability_initial: 0.4        # Initial spawn probability per timestep
+  spawn_probability_decay: 0.95         # Decay factor (multiplied each timestep)
+
+  # Possible spawn edges (remove any you don't want)
+  spawn_edges:
+    - top
+    - bottom
+    - left
+    - right
+
+  # Attacker speed range
+  speed_min: 0.5
+  speed_max: 2.0
+
+  # Warhead mass range
+  warhead_mass_min: 1.0
+  warhead_mass_max: 10.0
+
+# ============================================================================
+# VISUALIZATION SETTINGS
+# ============================================================================
+visualization:
+  fps_delay: 0.1                        # plt.pause() value (lower=faster)
+  figure_size: 10                       # Figure size in inches
+  engagement_display_time: 10           # Timesteps to show engagement highlight
+
+  # Colors
+  colors:
+    sam: blue
+    kinetic: darkorange
+    attacker: red
+    projectile: orange
+    engagement_highlight: gold
+    safe_zone: green
+
+  # Sizes
+  highlight_box_size: 8                 # Engagement highlight box size
+  marker_size_defender: 14
+  marker_size_attacker: 12
+  marker_size_projectile: 5
+
+# ============================================================================
+# NOTES
+# ============================================================================
+# - Coordinates are in map units (0 to map.width/height)
+# - Speed is in units per timestep
+# - Probability of kill is 0.0 to 1.0
+# - Reload time is in timesteps
+# - To make the game easier: increase defender ammo, decrease spawn probability
+# - To make the game harder: increase spawn probability, add more spawn edges
+# - Total attackers limit prevents infinite spawning (new feature!)

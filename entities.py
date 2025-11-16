@@ -104,33 +104,63 @@ class Defender:
 class SAMBattery(Defender):
     """Surface-to-Air Missile battery."""
 
-    def __init__(self, x: float, y: float):
+    def __init__(self, x: float, y: float, stats: dict = None):
+        """
+        Args:
+            x, y: Position
+            stats: Dictionary with keys: max_range, ammo, reload_time, shot_speed, base_probability_of_kill
+        """
+        # Default stats if not provided
+        if stats is None:
+            stats = {
+                'max_range': 40.0,
+                'ammo': 10,
+                'reload_time': 3,
+                'shot_speed': 15.0,
+                'base_probability_of_kill': 0.85
+            }
+
         super().__init__(
             x=x,
             y=y,
-            max_range=40.0,  # Long range
-            ammo=10,
-            reload_time=3,  # 3 timesteps to reload
-            shot_speed=15.0,  # Fast missiles
+            max_range=stats['max_range'],
+            ammo=stats['ammo'],
+            reload_time=stats['reload_time'],
+            shot_speed=stats['shot_speed'],
             defender_type='SAM'
         )
-        self.base_pk = 0.85  # High kill probability
+        self.base_pk = stats['base_probability_of_kill']
 
 
 class KineticDroneDepot(Defender):
     """Kinetic drone depot that launches interceptor drones."""
 
-    def __init__(self, x: float, y: float):
+    def __init__(self, x: float, y: float, stats: dict = None):
+        """
+        Args:
+            x, y: Position
+            stats: Dictionary with keys: max_range, ammo, reload_time, shot_speed, base_probability_of_kill
+        """
+        # Default stats if not provided
+        if stats is None:
+            stats = {
+                'max_range': 30.0,
+                'ammo': 20,
+                'reload_time': 1,
+                'shot_speed': 8.0,
+                'base_probability_of_kill': 0.70
+            }
+
         super().__init__(
             x=x,
             y=y,
-            max_range=30.0,  # Medium range
-            ammo=20,
-            reload_time=1,  # Fast reload
-            shot_speed=8.0,  # Slower than SAM
+            max_range=stats['max_range'],
+            ammo=stats['ammo'],
+            reload_time=stats['reload_time'],
+            shot_speed=stats['shot_speed'],
             defender_type='KINETIC'
         )
-        self.base_pk = 0.70  # Lower kill probability than SAM
+        self.base_pk = stats['base_probability_of_kill']
 
 
 class Attacker:
@@ -188,6 +218,7 @@ class Projectile:
     def __init__(self, defender_id: int, attacker_id: int,
                  start_x: float, start_y: float,
                  target_x: float, target_y: float,
+                 target_vx: float, target_vy: float,
                  speed: float, probability_of_kill: float):
         global _projectile_id_counter
         self.id = _projectile_id_counter
@@ -198,32 +229,71 @@ class Projectile:
 
         self.x = start_x
         self.y = start_y
-        self.target_x = target_x
-        self.target_y = target_y
 
-        # Calculate velocity to reach target
+        # PREDICTIVE TARGETING: Lead the target based on its velocity
+        # Simple iterative solution for intercept point
+        # This calculates where to aim to hit a moving target
+
+        # Initial estimate: time to reach current target position
         dx = target_x - start_x
         dy = target_y - start_y
         distance = np.sqrt(dx**2 + dy**2)
 
-        if distance > 0:
-            self.vx = (dx / distance) * speed
-            self.vy = (dy / distance) * speed
+        if distance > 0 and speed > 0:
+            # Estimate time to intercept
+            time_to_intercept = distance / speed
+
+            # Predict where target will be at intercept time
+            predicted_x = target_x + target_vx * time_to_intercept
+            predicted_y = target_y + target_vy * time_to_intercept
+
+            # Refine estimate with predicted position (one iteration is enough)
+            dx_pred = predicted_x - start_x
+            dy_pred = predicted_y - start_y
+            distance_pred = np.sqrt(dx_pred**2 + dy_pred**2)
+
+            if distance_pred > 0:
+                time_to_intercept = distance_pred / speed
+                # Final predicted position
+                predicted_x = target_x + target_vx * time_to_intercept
+                predicted_y = target_y + target_vy * time_to_intercept
+
+                # Aim at predicted position
+                dx_final = predicted_x - start_x
+                dy_final = predicted_y - start_y
+                distance_final = np.sqrt(dx_final**2 + dy_final**2)
+
+                if distance_final > 0:
+                    self.vx = (dx_final / distance_final) * speed
+                    self.vy = (dy_final / distance_final) * speed
+                    self.time_to_target = distance_final / speed
+                else:
+                    # Target too close, aim directly
+                    self.vx = (dx / distance) * speed
+                    self.vy = (dy / distance) * speed
+                    self.time_to_target = distance / speed
+
+                self.target_x = predicted_x
+                self.target_y = predicted_y
+            else:
+                # Fallback to direct aim
+                self.vx = (dx / distance) * speed
+                self.vy = (dy / distance) * speed
+                self.time_to_target = distance / speed
+                self.target_x = target_x
+                self.target_y = target_y
         else:
+            # No distance or no speed, aim directly at current position
             self.vx = 0
             self.vy = 0
+            self.time_to_target = 0
+            self.target_x = target_x
+            self.target_y = target_y
 
         self.speed = speed
         self.pk = probability_of_kill
         self.active = True
         self.hit_result = None  # None = still flying, True = hit, False = miss
-
-        # Calculate estimated time to target
-        if speed > 0:
-            self.time_to_target = distance / speed
-        else:
-            self.time_to_target = 0
-
         self.time_elapsed = 0
 
     def update(self, attacker_x: float, attacker_y: float) -> Optional[bool]:

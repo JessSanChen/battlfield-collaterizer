@@ -5,6 +5,8 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 import torch
+import yaml
+from pathlib import Path
 from scipy.optimize import linear_sum_assignment
 from typing import List, Tuple, Dict, Optional
 import matplotlib.pyplot as plt
@@ -23,31 +25,61 @@ class DroneDefenseEnv(gym.Env):
 
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 10}
 
-    def __init__(self, map_size: Tuple[int, int] = (200, 200),
-                 safe_zone: Tuple[float, float, float, float] = (80, 80, 120, 120),
-                 max_attackers: int = 20,
-                 max_timesteps: int = 300,
+    def __init__(self, config_path: str = "config.yaml",
                  use_attention: bool = True,
                  render_mode: Optional[str] = None):
         """
         Args:
-            map_size: (width, height) of the map
-            safe_zone: (x_min, y_min, x_max, y_max) coordinates of safe zone
-            max_attackers: Maximum number of attackers that can exist
-            max_timesteps: Maximum timesteps per episode
+            config_path: Path to YAML configuration file
             use_attention: Whether to use attention network or heuristic
             render_mode: Rendering mode
         """
         super().__init__()
 
-        self.map_width, self.map_height = map_size
-        self.safe_zone = safe_zone
-        self.max_attackers = max_attackers
-        self.max_timesteps = max_timesteps
+        # Load configuration from YAML
+        self.config = self._load_config(config_path)
+
+        # Map configuration
+        self.map_width = self.config['map']['width']
+        self.map_height = self.config['map']['height']
+
+        self.safe_zone = (
+            self.config['safe_zone']['x_min'],
+            self.config['safe_zone']['y_min'],
+            self.config['safe_zone']['x_max'],
+            self.config['safe_zone']['y_max']
+        )
+
+        # Episode configuration
+        self.max_timesteps = self.config['episode']['max_timesteps']
+        self.max_total_attackers = self.config['episode']['max_total_attackers']
+        self.max_concurrent_attackers = self.config['episode']['max_concurrent_attackers']
+
+        # Spawn configuration
+        self.min_attackers = self.config['attacker_spawn']['initial_count']
+        self.spawn_prob_initial = self.config['attacker_spawn']['spawn_probability_initial']
+        self.spawn_prob_decay = self.config['attacker_spawn']['spawn_probability_decay']
+        self.spawn_edges = self.config['attacker_spawn']['spawn_edges']
+        self.attacker_speed_range = (
+            self.config['attacker_spawn']['speed_min'],
+            self.config['attacker_spawn']['speed_max']
+        )
+        self.warhead_mass_range = (
+            self.config['attacker_spawn']['warhead_mass_min'],
+            self.config['attacker_spawn']['warhead_mass_max']
+        )
+
+        # Defender stats
+        self.defender_stats = self.config['defender_stats']
+
+        # Visualization configuration
+        self.viz_config = self.config['visualization']
+        self.engagement_display_time = self.viz_config['engagement_display_time']
+
         self.use_attention = use_attention
         self.render_mode = render_mode
 
-        # Initialize defenders (fixed for now, can be randomized)
+        # Initialize entities
         self.defenders: List[Defender] = []
         self.attackers: List[Attacker] = []
         self.projectiles: List[Projectile] = []
@@ -58,14 +90,8 @@ class DroneDefenseEnv(gym.Env):
         self.attackers_destroyed = 0
         self.safe_zone_breached = False
 
-        # Attacker spawning parameters
-        self.min_attackers = 8
-        self.spawn_prob_initial = 0.4
-        self.spawn_prob_decay = 0.95
-
         # Engagement tracking for visualization
         self.active_engagements = []  # List of (defender_id, attacker_id, time_remaining)
-        self.engagement_display_time = 10  # How many timesteps to show engagement
 
         # Neural network for attention-based allocation
         if self.use_attention:
@@ -94,20 +120,43 @@ class DroneDefenseEnv(gym.Env):
         self.fig = None
         self.ax = None
 
+    def _load_config(self, config_path: str) -> dict:
+        """Load configuration from YAML file."""
+        path = Path(config_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Configuration file not found: {config_path}")
+
+        with open(path, 'r') as f:
+            config = yaml.safe_load(f)
+
+        return config
+
     def _create_defenders(self):
-        """Create initial defender configuration."""
-        # Scale defender positions for larger map
-        self.defenders = [
-            SAMBattery(x=70, y=50),
-            SAMBattery(x=30, y=50),
-            KineticDroneDepot(x=50, y=20),
-            KineticDroneDepot(x=50, y=70),
-        ]
+        """Create initial defender configuration from config file."""
+        self.defenders = []
+
+        for defender_config in self.config['defenders']:
+            defender_type = defender_config['type']
+            x = defender_config['x']
+            y = defender_config['y']
+
+            # Get stats for this defender type
+            stats = self.defender_stats[defender_type]
+
+            # Create defender instance
+            if defender_type == 'SAM':
+                defender = SAMBattery(x=x, y=y, stats=stats)
+            elif defender_type == 'KINETIC':
+                defender = KineticDroneDepot(x=x, y=y, stats=stats)
+            else:
+                raise ValueError(f"Unknown defender type: {defender_type}")
+
+            self.defenders.append(defender)
 
     def _spawn_attacker(self):
-        """Spawn a new attacker at a random edge of the map."""
-        # Spawn from edges, heading towards safe zone
-        edge = np.random.choice(['top', 'bottom', 'left', 'right'])
+        """Spawn a new attacker at a random edge of the map using config parameters."""
+        # Spawn from configured edges
+        edge = np.random.choice(self.spawn_edges)
 
         safe_zone_center_x = (self.safe_zone[0] + self.safe_zone[2]) / 2
         safe_zone_center_y = (self.safe_zone[1] + self.safe_zone[3]) / 2
@@ -130,11 +179,13 @@ class DroneDefenseEnv(gym.Env):
         dy = safe_zone_center_y - y
         distance = np.sqrt(dx**2 + dy**2)
 
-        speed = np.random.uniform(0.5, 2.0)
+        # Use configured speed range
+        speed = np.random.uniform(self.attacker_speed_range[0], self.attacker_speed_range[1])
         vx = (dx / distance) * speed
         vy = (dy / distance) * speed
 
-        warhead_mass = np.random.uniform(1, 10)
+        # Use configured warhead mass range
+        warhead_mass = np.random.uniform(self.warhead_mass_range[0], self.warhead_mass_range[1])
 
         attacker = Attacker(x=x, y=y, vx=vx, vy=vy, warhead_mass=warhead_mass)
         self.attackers.append(attacker)
@@ -380,9 +431,13 @@ class DroneDefenseEnv(gym.Env):
         self.timestep += 1
 
         # 1. Spawn new attackers (probability decreases over time)
+        # Check both concurrent limit and total episode limit
         spawn_prob = self.spawn_prob_initial * (self.spawn_prob_decay ** self.timestep)
+        current_alive = len([a for a in self.attackers if a.alive])
+
         if (np.random.random() < spawn_prob and
-            len(self.attackers) < self.max_attackers):
+            current_alive < self.max_concurrent_attackers and
+            self.total_attackers_spawned < self.max_total_attackers):
             self._spawn_attacker()
 
         # 2. Construct graph (adjacency matrix)
@@ -411,7 +466,7 @@ class DroneDefenseEnv(gym.Env):
             )
             pk = defender.probability_of_kill(distance, attacker.get_speed())
 
-            # Create projectile
+            # Create projectile with predictive targeting (pass target velocity)
             projectile = Projectile(
                 defender_id=defender.id,
                 attacker_id=attacker.id,
@@ -419,6 +474,8 @@ class DroneDefenseEnv(gym.Env):
                 start_y=defender.y,
                 target_x=attacker.x,
                 target_y=attacker.y,
+                target_vx=attacker.vx,
+                target_vy=attacker.vy,
                 speed=defender.shot_speed,
                 probability_of_kill=pk
             )
@@ -533,7 +590,8 @@ class DroneDefenseEnv(gym.Env):
             return
 
         if self.fig is None:
-            self.fig, self.ax = plt.subplots(figsize=(10, 10))
+            fig_size = self.viz_config['figure_size']
+            self.fig, self.ax = plt.subplots(figsize=(fig_size, fig_size))
             plt.ion()
 
         self.ax.clear()
@@ -542,12 +600,15 @@ class DroneDefenseEnv(gym.Env):
         self.ax.set_aspect('equal')
         self.ax.set_title(f'Drone Defense - Timestep {self.timestep}', fontsize=14, fontweight='bold')
 
+        # Get colors from config
+        colors = self.viz_config['colors']
+
         # Draw safe zone
         safe_zone_rect = patches.Rectangle(
             (self.safe_zone[0], self.safe_zone[1]),
             self.safe_zone[2] - self.safe_zone[0],
             self.safe_zone[3] - self.safe_zone[1],
-            linewidth=2, edgecolor='green', facecolor='lightgreen', alpha=0.3
+            linewidth=2, edgecolor=colors['safe_zone'], facecolor='light' + colors['safe_zone'], alpha=0.3
         )
         self.ax.add_patch(safe_zone_rect)
 
@@ -556,13 +617,14 @@ class DroneDefenseEnv(gym.Env):
             if not defender.alive:
                 continue
 
-            # SAM = blue squares, Kinetic = orange squares
-            color = 'blue' if defender.defender_type == 'SAM' else 'darkorange'
+            # Get color from config
+            color = colors['sam'] if defender.defender_type == 'SAM' else colors['kinetic']
             marker = 's'  # Both are squares now
 
             # Draw defender
+            marker_size = self.viz_config['marker_size_defender']
             self.ax.plot(defender.x, defender.y, marker=marker, color=color,
-                        markersize=14, markeredgecolor='black', markeredgewidth=1.5)
+                        markersize=marker_size, markeredgecolor='black', markeredgewidth=1.5)
 
             # Draw range circle
             range_circle = plt.Circle((defender.x, defender.y), defender.max_range,
@@ -589,9 +651,11 @@ class DroneDefenseEnv(gym.Env):
             if not attacker.alive:
                 continue
 
-            # Draw attacker as red triangle
-            self.ax.plot(attacker.x, attacker.y, marker='^', color='red',
-                        markersize=12, markeredgecolor='darkred', markeredgewidth=1.5)
+            # Draw attacker as triangle (color from config)
+            attacker_color = colors['attacker']
+            marker_size = self.viz_config['marker_size_attacker']
+            self.ax.plot(attacker.x, attacker.y, marker='^', color=attacker_color,
+                        markersize=marker_size, markeredgecolor='dark' + attacker_color, markeredgewidth=1.5)
 
             # Draw velocity vector
             if attacker.get_speed() > 0.1:
@@ -618,30 +682,29 @@ class DroneDefenseEnv(gym.Env):
                     break
 
             if target_attacker:
-                # Draw smaller square around target with darker yellow (gold)
+                # Draw highlight box around target (size and color from config)
+                box_size = self.viz_config['highlight_box_size']
+                highlight_color = colors['engagement_highlight']
                 highlight_rect = patches.Rectangle(
-                    (target_attacker.x - 4, target_attacker.y - 4),
-                    8, 8,
-                    linewidth=2, edgecolor='gold', facecolor='none', linestyle='--'
+                    (target_attacker.x - box_size/2, target_attacker.y - box_size/2),
+                    box_size, box_size,
+                    linewidth=2, edgecolor=highlight_color, facecolor='none', linestyle='--'
                 )
                 self.ax.add_patch(highlight_rect)
 
                 # Label which defender is targeting
-                self.ax.text(target_attacker.x + 6, target_attacker.y + 6,
+                self.ax.text(target_attacker.x + box_size/2 + 2, target_attacker.y + box_size/2 + 2,
                             f'← D{defender_id}',
-                            fontsize=8, color='gold', fontweight='bold',
+                            fontsize=8, color=highlight_color, fontweight='bold',
                             bbox=dict(boxstyle='round,pad=0.2', facecolor='black', alpha=0.7))
 
-        # Draw projectiles with trajectories
+        # Draw projectiles (no trajectory lines to reduce clutter)
+        projectile_color = colors['projectile']
+        marker_size = self.viz_config['marker_size_projectile']
         for projectile in self.projectiles:
             # Draw projectile as small circle
-            self.ax.plot(projectile.x, projectile.y, 'o', color='orange',
-                        markersize=5, markeredgecolor='black', markeredgewidth=1)
-
-            # Draw trajectory trail
-            trail_x1, trail_y1, trail_x2, trail_y2 = projectile.get_trajectory_line()
-            self.ax.plot([trail_x1, trail_x2], [trail_y1, trail_y2],
-                        color='orange', linewidth=2, alpha=0.6, linestyle='-')
+            self.ax.plot(projectile.x, projectile.y, 'o', color=projectile_color,
+                        markersize=marker_size, markeredgecolor='black', markeredgewidth=1)
 
         # Info text
         info_text = f'Attackers: {len([a for a in self.attackers if a.alive])} alive, {self.attackers_destroyed} destroyed\n'
@@ -661,9 +724,9 @@ class DroneDefenseEnv(gym.Env):
         self.ax.legend(handles=legend_elements, loc='upper right', fontsize=8)
 
         plt.draw()
-        # ADJUST FPS HERE: Lower value = faster, higher value = slower
+        # FPS from config: Lower value = faster, higher value = slower
         # 0.05 = ~20 FPS, 0.1 = ~10 FPS, 0.2 = ~5 FPS, 0.5 = ~2 FPS
-        plt.pause(0.1)  # Change this value to adjust visualization speed
+        plt.pause(self.viz_config['fps_delay'])
 
     def close(self):
         """Close the environment."""
