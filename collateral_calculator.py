@@ -94,6 +94,7 @@ class CollateralCalculator:
         self.risk_grid = None
         self.grid_bounds = None
         self.grid_resolution = 100  # 100x100 grid
+        self.avg_risk = 0.0  # Will be computed by pre_compute_risk_grid()
 
         print(f"[*] Initializing Collateral Calculator for {airport_name}")
         self.pre_compute_risk_grid()
@@ -345,10 +346,11 @@ class CollateralCalculator:
             for j, lon in enumerate(lons):
                 self.risk_grid[i, j] = self.calculate_engagement_risk(lat, lon, 'kinetic')
 
-        avg_risk = np.mean(self.risk_grid)
+        # Store average risk as instance attribute
+        self.avg_risk = np.mean(self.risk_grid)
         ocean_cells = np.sum(self.risk_grid < 0.1) if self.airport_name == 'Taoyuan' else 0
 
-        print(f"[✓] Risk grid computed: avg risk = {avg_risk:.3f}")
+        print(f"[✓] Risk grid computed: avg risk = {self.avg_risk:.3f}")
         if ocean_cells > 0:
             print(f"[✓] Ocean safe zone cells: {ocean_cells}/{self.grid_resolution**2} ({100*ocean_cells/self.grid_resolution**2:.1f}%)")
 
