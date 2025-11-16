@@ -1,18 +1,29 @@
 # Drone Defense Configuration File
 # All parameters for easy tuning during hackathon
+#
+# ============================================================================
+# REAL-WORLD SCALING
+# ============================================================================
+# The simulation uses real-world scaling:
+#   - Map: 200x200 units = 20 km x 20 km (10 km radius from center)
+#   - Scale: 1 unit = 100 meters
+#   - Timestep: 1 timestep = 1 second
+#   - Example: SAM range of 50 km = 500 units
+#   - Example: Speed of 100 m/s = 1.0 units/timestep
 
 # ============================================================================
 # MAP CONFIGURATION
 # ============================================================================
 map:
-  width: 200
-  height: 200
+  width: 200                                # 20 km total width
+  height: 200                               # 20 km total height
 
+# RUNWAY (Safe Zone) - 2 miles long, horizontal orientation
 safe_zone:
-  x_min: 90
-  y_min: 90
-  x_max: 110
-  y_max: 110
+  x_min: 84                                 # Runway start
+  y_min: 99                                 # 200m wide for visibility
+  x_max: 116                                # 2 miles (~3.2 km) long
+  y_max: 101                                # Center at y=100
 
 # ============================================================================
 # EPISODE CONFIGURATION
@@ -27,49 +38,51 @@ episode:
 # ============================================================================
 defenders:
   # List of defenders to spawn at episode start
-  # Type can be: SAM or KINETIC
-  - type: SAM
-    x: 70
-    y: 50
+  # Type can be: SAM, KINETIC, or AESA
+  # Positioned around runway center at (100, 100)
 
   - type: SAM
-    x: 30
-    y: 50
+    x: 80
+    y: 80                                   # Southwest corner
 
   - type: SAM
-    x: 50
-    y: 30
+    x: 120
+    y: 80                                   # Southeast corner
+
+  - type: SAM
+    x: 100
+    y: 120                                  # North
 
   - type: KINETIC
-    x: 50
-    y: 20
+    x: 100
+    y: 60                                   # South (outer perimeter)
 
   - type: KINETIC
-    x: 50
-    y: 70
+    x: 100
+    y: 140                                  # North (outer perimeter)
 
   - type: AESA
     x: 100
-    y: 105                                  # North of runway (avoids aiming south penalty)
+    y: 110                                  # North of runway (avoids aiming south penalty)
 
 # Defender type statistics (REAL-WORLD SCALED)
 defender_stats:
   SAM:
-    max_range: 40.0                     # Maximum engagement range
+    max_range: 500.0                    # 50 km range (covers entire map!)
     ammo: 10                            # Starting ammunition
-    reload_time: 3                      # Timesteps to reload
-    shot_speed: 15.0                    # Projectile speed (units/timestep)
-    base_probability_of_kill: 0.85      # Base P(kill) before distance/speed factors
+    reload_time: 5                      # 5 seconds to reload
+    shot_speed: 1.0                     # 100 m/s missile speed
+    base_probability_of_kill: 0.99      # Base P(kill) (simplified - no modifiers)
 
   KINETIC:
     max_range: 50.0                     # 5 km range
-    ammo: 50                            # More interceptor drones available
-    reload_time: 7                      # 10 seconds to reload
+    ammo: 20                            # More interceptor drones available
+    reload_time: 2                      # 2 seconds to reload
     shot_speed: 0.27                    # 60 mph (26.8 m/s) drone speed
-    base_probability_of_kill: 0.70      # Base P(kill) (simplified - no modifiers)
+    base_probability_of_kill: 0.99      # Base P(kill) (simplified - no modifiers)
 
   AESA:
-    max_range: 20.0                     # 500m microwave range
+    max_range: 20.0                     # 2 km microwave range (20 units = 2000m)
     ammo: 999                           # Effectively unlimited
     reload_time: 20                     # 20 seconds - long reload
     shot_speed: 0.0                     # Instant effect (not used)
@@ -91,9 +104,9 @@ attacker_spawn:
     - left
     - right
 
-  # Attacker speed range
-  speed_min: 19.0
-  speed_max: 20.0
+  # Attacker speed range (real-world scaled)
+  speed_min: 0.5                        # 50 m/s minimum
+  speed_max: 1.0                        # 100 m/s maximum (fast attack drones)
 
   # Warhead mass range
   warhead_mass_min: 1.0
@@ -111,6 +124,8 @@ visualization:
   colors:
     sam: blue
     kinetic: darkorange
+    aesa: purple
+    aesa_cone: magenta
     attacker: red
     projectile: orange
     engagement_highlight: gold
@@ -125,10 +140,21 @@ visualization:
 # ============================================================================
 # NOTES
 # ============================================================================
-# - Coordinates are in map units (0 to map.width/height)
-# - Speed is in units per timestep
-# - Probability of kill is 0.0 to 1.0
-# - Reload time is in timesteps
-# - To make the game easier: increase defender ammo, decrease spawn probability
-# - To make the game harder: increase spawn probability, add more spawn edges
-# - Total attackers limit prevents infinite spawning (new feature!)
+# REAL-WORLD SCALING REFERENCE:
+# - Map: 200x200 units = 20 km x 20 km battlefield
+# - 1 unit = 100 meters
+# - 1 timestep = 1 second
+# - Runway: 2 miles (3.2 km) long x 200m wide
+# - SAM range: 50 km (can cover entire map from center)
+# - SAM missiles: 100 m/s
+# - Kinetic drones: 5 km range, 60 mph (27 m/s)
+# - AESA: 2 km range, 10° cone, instant kill
+# - Attack drones: 50-100 m/s
+#
+# TUNING:
+# - Coordinates are in map units (0-200)
+# - Speed is in units per timestep (1 unit/timestep = 100 m/s)
+# - Probability of kill is 0.0 to 1.0 (no modifiers, just base value)
+# - Reload time is in timesteps (1 timestep = 1 second)
+# - To make easier: increase defender ammo, decrease spawn probability
+# - To make harder: increase spawn probability, add more spawn edges
