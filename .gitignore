@@ -416,3 +416,24 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# ===== Python-specific ignores for this project =====
+# Virtual environment
+venv/
+env/
+ENV/
+
+# Large data files (generated from extract_data.py)
+*.pkl
+*.tif
+
+# Mac OS
+.DS_Store
+
+# Python distribution
+*.egg-info/
+dist/
+build/
+
+# Streamlit cache
+.streamlit/
