@@ -60,10 +60,10 @@ def train_rl_agent(total_timesteps: int = 100000, save_path: str = "models/ppo_d
     # Create environment
     def make_env():
         return DroneDefenseEnv(
-            map_size=(100, 100),
-            safe_zone=(40, 40, 60, 60),
-            max_attackers=15,
-            max_timesteps=200,
+            # map_size=(100, 100),
+            # safe_zone=(40, 40, 60, 60),
+            # max_attackers=15,
+            # max_timesteps=200,
             use_attention=True,  # Train with attention network
             render_mode=None  # No rendering during training
         )
