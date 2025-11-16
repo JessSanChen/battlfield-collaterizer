@@ -30,8 +30,8 @@ safe_zone:
 # ============================================================================
 episode:
   max_timesteps: 300                    # Maximum episode length
-  max_total_attackers: 30               # Total attackers that can spawn per episode (new!)
-  max_concurrent_attackers: 15          # Maximum attackers alive at once
+  max_total_attackers: 28               # Fewer attackers (urban requires cautious engagement)
+  max_concurrent_attackers: 9           # Fewer concurrent (collateral risk limits aggression)
 
 # ============================================================================
 # DEFENDER CONFIGURATIONS
@@ -70,16 +70,16 @@ defender_stats:
   SAM:
     max_range: 500.0                    # 50 km range (covers entire map!)
     ammo: 10                            # Starting ammunition
-    reload_time: 10                      # 5 seconds to reload
-    shot_speed: 2.0                     # 100 m/s missile speed
-    base_probability_of_kill: 0.95      # Base P(kill) (simplified - no modifiers)
+    reload_time: 5                      # 5 seconds to reload
+    shot_speed: 1.0                     # 100 m/s missile speed
+    base_probability_of_kill: 0.99      # Base P(kill) (simplified - no modifiers)
 
   KINETIC:
     max_range: 50.0                     # 5 km range
     ammo: 20                            # More interceptor drones available
-    reload_time: 7                      # 2 seconds to reload
-    shot_speed: 0.50                    # 60 mph (26.8 m/s) drone speed
-    base_probability_of_kill: 0.60      # Base P(kill) (simplified - no modifiers)
+    reload_time: 2                      # 2 seconds to reload
+    shot_speed: 0.27                    # 60 mph (26.8 m/s) drone speed
+    base_probability_of_kill: 0.99      # Base P(kill) (simplified - no modifiers)
 
   AESA:
     max_range: 20.0                     # 2 km microwave range (20 units = 2000m)
@@ -93,8 +93,8 @@ defender_stats:
 # ATTACKER SPAWN CONFIGURATION
 # ============================================================================
 attacker_spawn:
-  initial_count: 10                      # Number of attackers at episode start
-  spawn_probability_initial: 0.4        # Initial spawn probability per timestep
+  initial_count: 4                      # Moderate initial attackers
+  spawn_probability_initial: 0.35       # Lower spawn probability (urban caution)
   spawn_probability_decay: 0.95         # Decay factor (multiplied each timestep)
 
   # Possible spawn edges (remove any you don't want)
@@ -106,7 +106,7 @@ attacker_spawn:
 
   # Attacker speed range (real-world scaled)
   speed_min: 0.5                        # 50 m/s minimum
-  speed_max: 1.5                        # 100 m/s maximum (fast attack drones)
+  speed_max: 1.0                        # 100 m/s maximum (fast attack drones)
 
   # Warhead mass range
   warhead_mass_min: 1.0
