@@ -12,7 +12,7 @@ from typing import List, Tuple, Dict, Optional
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-from entities import Defender, Attacker, SAMBattery, KineticDroneDepot, Projectile, reset_id_counters
+from entities import Defender, Attacker, SAMBattery, KineticDroneDepot, AESAEmitter, Projectile, reset_id_counters
 from attention_network import AttentionAllocationSystem
 
 
@@ -92,11 +92,12 @@ class DroneDefenseEnv(gym.Env):
 
         # Engagement tracking for visualization
         self.active_engagements = []  # List of (defender_id, attacker_id, time_remaining)
+        self.active_aesa_cones = []  # List of (defender_id, orientation, time_remaining) for AESA visualization
 
         # Neural network for attention-based allocation
         if self.use_attention:
             self.attention_system = AttentionAllocationSystem(
-                defender_dim=6,
+                defender_dim=7,  # Updated to 7 (added type_aesa)
                 attacker_dim=6,
                 context_dim=16,
                 hidden_dim=64
@@ -111,7 +112,7 @@ class DroneDefenseEnv(gym.Env):
 
         # Observation space: flattened state (for compatibility with SB3)
         # In practice, the network directly processes defender/attacker features
-        max_state_size = (10 * 6 + 10 * 6)  # Max defenders + attackers * feature dims
+        max_state_size = (10 * 7 + 10 * 6)  # Max defenders (7 features) + attackers (6 features)
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(max_state_size,), dtype=np.float32
         )
@@ -148,6 +149,8 @@ class DroneDefenseEnv(gym.Env):
                 defender = SAMBattery(x=x, y=y, stats=stats)
             elif defender_type == 'KINETIC':
                 defender = KineticDroneDepot(x=x, y=y, stats=stats)
+            elif defender_type == 'AESA':
+                defender = AESAEmitter(x=x, y=y, stats=stats)
             else:
                 raise ValueError(f"Unknown defender type: {defender_type}")
 
@@ -355,7 +358,8 @@ class DroneDefenseEnv(gym.Env):
         - +10 for each attacker destroyed
         - +0.1 * ammo_conservation_ratio
         - -50 for each defender lost
-        - -200 for safe zone breach
+        - -100 for each AESA emitter aiming below horizontal (toward runway)
+        - -200 for safe zone breach (most severe penalty)
 
         Args:
             allocations: Defender-attacker allocations this timestep
@@ -386,6 +390,13 @@ class DroneDefenseEnv(gym.Env):
         if safe_zone_breached:
             reward -= 200.0
 
+        # Penalty for AESA emitters aiming south (below horizontal)
+        # This discourages aiming toward the runway
+        for defender in alive_defenders:
+            if isinstance(defender, AESAEmitter):
+                if defender.is_aiming_below_horizontal():
+                    reward -= 100.0  # Heavy penalty, but less than safe zone breach
+
         return reward
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
@@ -404,6 +415,7 @@ class DroneDefenseEnv(gym.Env):
         # Clear projectiles and engagements
         self.projectiles = []
         self.active_engagements = []
+        self.active_aesa_cones = []
 
         # Create defenders
         self._create_defenders()
@@ -487,8 +499,58 @@ class DroneDefenseEnv(gym.Env):
             # Consume ammo
             defender.shoot()
 
+        # 5.5. AESA Emitter firing (destroys everything in cone - including friendly projectiles)
+        aesa_destroyed_attackers = 0
+        aesa_destroyed_projectiles = 0
+
+        for defender in alive_defenders:
+            if not isinstance(defender, AESAEmitter):
+                continue
+
+            if not defender.can_shoot():
+                continue
+
+            # Find nearest attacker WITHIN RANGE to aim at
+            nearest_attacker = None
+            min_distance = float('inf')
+
+            for attacker in alive_attackers:
+                distance = np.linalg.norm(defender.get_position() - attacker.get_position())
+                if distance <= defender.max_range and distance < min_distance:
+                    min_distance = distance
+                    nearest_attacker = attacker
+
+            if nearest_attacker is None:
+                continue  # No targets in range - don't waste a shot!
+
+            # Aim at nearest attacker
+            dx = nearest_attacker.x - defender.x
+            dy = nearest_attacker.y - defender.y
+            aim_angle = np.degrees(np.arctan2(dy, dx))
+            defender.set_orientation(aim_angle)
+
+            # Fire! Destroy all entities in cone
+            # Check all attackers
+            for attacker in alive_attackers:
+                if defender.is_in_cone(attacker.x, attacker.y):
+                    attacker.alive = False
+                    aesa_destroyed_attackers += 1
+                    self.attackers_destroyed += 1
+
+            # Check all projectiles (including friendly ones!)
+            for projectile in self.projectiles:
+                if defender.is_in_cone(projectile.x, projectile.y):
+                    projectile.active = False
+                    aesa_destroyed_projectiles += 1
+
+            # Track cone activation for visualization
+            self.active_aesa_cones.append((defender.id, defender.orientation, self.engagement_display_time))
+
+            # Consume ammo and trigger reload
+            defender.shoot()
+
         # 6. Update projectiles and check for hits
-        attackers_killed_this_step = 0
+        attackers_killed_this_step = aesa_destroyed_attackers  # Start with AESA kills
         projectiles_to_remove = []
 
         for projectile in self.projectiles:
@@ -524,6 +586,9 @@ class DroneDefenseEnv(gym.Env):
         self.active_engagements = [
             (d_id, a_id, time - 1) for d_id, a_id, time in self.active_engagements if time > 1
         ]
+        self.active_aesa_cones = [
+            (d_id, orientation, time - 1) for d_id, orientation, time in self.active_aesa_cones if time > 1
+        ]
 
         # 8. Update all entities
         for defender in self.defenders:
@@ -558,15 +623,15 @@ class DroneDefenseEnv(gym.Env):
         # Simplified observation for compatibility
         obs = np.zeros(self.observation_space.shape, dtype=np.float32)
 
-        # Pack defender features
+        # Pack defender features (7 features: x, y, ammo_ratio, reload_status, type_sam, type_kinetic, type_aesa)
         idx = 0
         for i, defender in enumerate(self.defenders[:10]):  # Max 10 defenders
             if defender.alive:
                 features = defender.to_feature_vector()
-                obs[idx:idx+6] = features
-            idx += 6
+                obs[idx:idx+7] = features
+            idx += 7
 
-        # Pack attacker features
+        # Pack attacker features (6 features: x, y, vx, vy, warhead_mass, speed)
         for i, attacker in enumerate([a for a in self.attackers if a.alive][:10]):  # Max 10 attackers
             features = attacker.to_feature_vector()
             obs[idx:idx+6] = features
@@ -598,12 +663,13 @@ class DroneDefenseEnv(gym.Env):
         self.ax.set_xlim(0, self.map_width)
         self.ax.set_ylim(0, self.map_height)
         self.ax.set_aspect('equal')
-        self.ax.set_title(f'Drone Defense - Timestep {self.timestep}', fontsize=14, fontweight='bold')
+        self.ax.set_title(f'Drone Defense - Timestep {self.timestep}s | 20km x 20km Battlefield',
+                         fontsize=14, fontweight='bold')
 
         # Get colors from config
         colors = self.viz_config['colors']
 
-        # Draw safe zone
+        # Draw safe zone (runway)
         safe_zone_rect = patches.Rectangle(
             (self.safe_zone[0], self.safe_zone[1]),
             self.safe_zone[2] - self.safe_zone[0],
@@ -612,14 +678,28 @@ class DroneDefenseEnv(gym.Env):
         )
         self.ax.add_patch(safe_zone_rect)
 
-        # Draw defenders - BOTH TYPES ARE NOW SQUARES
+        # Add runway label
+        runway_center_x = (self.safe_zone[0] + self.safe_zone[2]) / 2
+        runway_center_y = (self.safe_zone[1] + self.safe_zone[3]) / 2
+        self.ax.text(runway_center_x, runway_center_y, 'RUNWAY',
+                    ha='center', va='center', fontsize=10, fontweight='bold',
+                    color=colors['safe_zone'], alpha=0.8)
+
+        # Draw defenders - ALL TYPES ARE SQUARES
         for defender in self.defenders:
             if not defender.alive:
                 continue
 
-            # Get color from config
-            color = colors['sam'] if defender.defender_type == 'SAM' else colors['kinetic']
-            marker = 's'  # Both are squares now
+            # Get color from config based on type
+            if defender.defender_type == 'SAM':
+                color = colors['sam']
+            elif defender.defender_type == 'KINETIC':
+                color = colors['kinetic']
+            elif defender.defender_type == 'AESA':
+                color = colors['aesa']
+            else:
+                color = 'gray'  # Fallback
+            marker = 's'  # All are squares
 
             # Draw defender
             marker_size = self.viz_config['marker_size_defender']
@@ -697,6 +777,44 @@ class DroneDefenseEnv(gym.Env):
                             f'← D{defender_id}',
                             fontsize=8, color=highlight_color, fontweight='bold',
                             bbox=dict(boxstyle='round,pad=0.2', facecolor='black', alpha=0.7))
+
+        # Draw active AESA emission cones
+        for defender_id, orientation, time_remaining in self.active_aesa_cones:
+            # Find the AESA defender
+            aesa_defender = None
+            for defender in self.defenders:
+                if defender.id == defender_id and defender.alive:
+                    aesa_defender = defender
+                    break
+
+            if aesa_defender and isinstance(aesa_defender, AESAEmitter):
+                # Draw cone using Wedge
+                cone_color = colors['aesa_cone']
+                half_angle = aesa_defender.cone_angle / 2.0
+
+                # Wedge uses counterclockwise angles from east (0°)
+                theta1 = orientation - half_angle
+                theta2 = orientation + half_angle
+
+                cone_wedge = patches.Wedge(
+                    (aesa_defender.x, aesa_defender.y),
+                    aesa_defender.max_range,
+                    theta1, theta2,
+                    facecolor=cone_color, edgecolor=cone_color,
+                    alpha=0.3, linewidth=2
+                )
+                self.ax.add_patch(cone_wedge)
+
+                # Add label
+                mid_angle_rad = np.radians(orientation)
+                label_distance = aesa_defender.max_range * 0.6
+                label_x = aesa_defender.x + label_distance * np.cos(mid_angle_rad)
+                label_y = aesa_defender.y + label_distance * np.sin(mid_angle_rad)
+
+                self.ax.text(label_x, label_y, f'AESA D{defender_id}',
+                            fontsize=9, color=cone_color, fontweight='bold',
+                            ha='center', va='center',
+                            bbox=dict(boxstyle='round,pad=0.3', facecolor='black', alpha=0.8))
 
         # Draw projectiles (no trajectory lines to reduce clutter)
         projectile_color = colors['projectile']

@@ -79,20 +79,22 @@ class Defender:
         Convert defender to feature vector for neural network.
 
         Returns:
-            Feature vector: [x, y, ammo_ratio, reload_status, type_sam, type_kinetic]
+            Feature vector: [x, y, ammo_ratio, reload_status, type_sam, type_kinetic, type_aesa]
         """
         ammo_ratio = self.ammo / self.max_ammo if self.max_ammo > 0 else 0.0
         reload_status = self.reload_counter / self.reload_time if self.reload_time > 0 else 0.0
         type_sam = 1.0 if self.defender_type == 'SAM' else 0.0
         type_kinetic = 1.0 if self.defender_type == 'KINETIC' else 0.0
+        type_aesa = 1.0 if self.defender_type == 'AESA' else 0.0
 
         return np.array([
-            self.x / 200.0,  # Normalize to ~0-1 range assuming map size 200
+            self.x / 200.0,  # Normalize to ~0-1 range (map is 200 units = 20 km)
             self.y / 200.0,
             ammo_ratio,
             reload_status,
             type_sam,
-            type_kinetic
+            type_kinetic,
+            type_aesa
         ], dtype=np.float32)
 
 
@@ -158,6 +160,90 @@ class KineticDroneDepot(Defender):
         self.base_pk = stats['base_probability_of_kill']
 
 
+class AESAEmitter(Defender):
+    """AESA Microwave Emitter - destroys all drones in a directional cone."""
+
+    def __init__(self, x: float, y: float, stats: dict = None):
+        """
+        Args:
+            x, y: Position
+            stats: Dictionary with keys: max_range, ammo, reload_time, cone_angle, base_probability_of_kill
+        """
+        # Default stats if not provided
+        if stats is None:
+            stats = {
+                'max_range': 5.0,           # 500m range
+                'ammo': 999,                # Effectively unlimited
+                'reload_time': 20,          # 20 seconds - long reload
+                'shot_speed': 0.0,          # Instant effect (not used)
+                'cone_angle': 10.0,         # 10 degree total cone
+                'base_probability_of_kill': 1.0  # 100% kill in cone
+            }
+
+        super().__init__(
+            x=x,
+            y=y,
+            max_range=stats['max_range'],
+            ammo=stats['ammo'],
+            reload_time=stats['reload_time'],
+            shot_speed=stats['shot_speed'],
+            defender_type='AESA'
+        )
+        self.base_pk = stats['base_probability_of_kill']
+        self.cone_angle = stats['cone_angle']  # Total cone angle in degrees
+        self.orientation = 0.0  # Angle in degrees (0=east, 90=north, 180=west, 270=south)
+
+    def set_orientation(self, angle_degrees: float):
+        """Set the orientation angle of the emitter cone."""
+        self.orientation = angle_degrees
+
+    def is_in_cone(self, target_x: float, target_y: float) -> bool:
+        """
+        Check if a target position is within the emission cone.
+
+        Args:
+            target_x, target_y: Target position
+
+        Returns:
+            True if target is within cone range and angle
+        """
+        # Calculate vector from emitter to target
+        dx = target_x - self.x
+        dy = target_y - self.y
+        distance = np.sqrt(dx**2 + dy**2)
+
+        # Check range
+        if distance > self.max_range or distance < 0.1:
+            return False
+
+        # Calculate angle to target (in degrees, 0=east, 90=north)
+        angle_to_target = np.degrees(np.arctan2(dy, dx))
+
+        # Normalize angles to [0, 360)
+        angle_to_target = angle_to_target % 360
+        orientation_norm = self.orientation % 360
+
+        # Calculate angular difference (shortest path)
+        angle_diff = abs(angle_to_target - orientation_norm)
+        if angle_diff > 180:
+            angle_diff = 360 - angle_diff
+
+        # Check if within cone half-angle
+        return angle_diff <= self.cone_angle / 2.0
+
+    def is_aiming_below_horizontal(self) -> bool:
+        """
+        Check if the emitter is aiming below horizontal (southward).
+
+        Returns:
+            True if aiming south (below horizontal)
+        """
+        # Convert orientation to radians
+        angle_rad = np.radians(self.orientation)
+        # Check if y-component of direction vector is negative
+        return np.sin(angle_rad) < 0
+
+
 class Attacker:
     """Enemy drone attacker."""
 
@@ -195,12 +281,12 @@ class Attacker:
             Feature vector: [x, y, vx, vy, warhead_mass, speed]
         """
         return np.array([
-            self.x / 200.0,  # Normalize to ~0-1 range assuming map size 200
+            self.x / 200.0,  # Normalize to ~0-1 range (map is 200 units = 20 km)
             self.y / 200.0,
-            self.vx / 5.0,  # Normalize assuming max velocity ~5
-            self.vy / 5.0,
+            self.vx / 2.0,  # Normalize velocity (max ~1.0 unit/timestep = 100 m/s)
+            self.vy / 2.0,
             self.warhead_mass / 10.0,  # Normalize (1-10 range)
-            self.get_speed() / 7.0  # Normalize speed
+            self.get_speed() / 2.0  # Normalize speed (max ~1.0 = 100 m/s)
         ], dtype=np.float32)
 
 
