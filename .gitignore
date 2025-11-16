@@ -425,14 +425,23 @@ FodyWeavers.xsd
 *.msm
 *.msp
 
-# Python ML/RL specific
-models/
-*.pth
-*.pt
-tensorboard_logs/
-*.pkl
-*.npy
-*.npz
+# ===== Python-specific ignores for this project =====
+# Virtual environment
 venv/
 env/
 ENV/
+
+# Large data files (generated from extract_data.py)
+*.pkl
+*.tif
+
+# Mac OS
+.DS_Store
+
+# Python distribution
+*.egg-info/
+dist/
+build/
+
+# Streamlit cache
+.streamlit/
