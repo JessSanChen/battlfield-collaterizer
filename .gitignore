@@ -435,6 +435,14 @@ ENV/
 *.pkl
 *.tif
 
+# RL trained models (partner's system)
+models/
+*.pth
+*.pt
+
+# GeoJSON source data (large files, not needed in git)
+*.geojson
+
 # Mac OS
 .DS_Store
 
