@@ -19,8 +19,8 @@ safe_zone:
 # ============================================================================
 episode:
   max_timesteps: 300                    # Maximum episode length
-  max_total_attackers: 30               # Total attackers that can spawn per episode (new!)
-  max_concurrent_attackers: 10          # Maximum attackers alive at once
+  max_total_attackers: 50               # Total attackers that can spawn per episode (new!)
+  max_concurrent_attackers: 20          # Maximum attackers alive at once
 
 # ============================================================================
 # DEFENDER CONFIGURATIONS
@@ -29,46 +29,46 @@ defenders:
   # List of defenders to spawn at episode start
   # Type can be: SAM or KINETIC
   - type: SAM
-    x: 70
-    y: 50
+    x: 80
+    y: 80
 
   - type: SAM
-    x: 30
-    y: 50
+    x: 120
+    y: 80
 
   - type: SAM
-    x: 50
-    y: 30
+    x: 100
+    y: 120
 
   - type: KINETIC
-    x: 50
-    y: 20
+    x: 100
+    y: 60
 
   - type: KINETIC
-    x: 50
-    y: 70
+    x: 100
+    y: 140
 
 # Defender type statistics
 defender_stats:
   SAM:
-    max_range: 40.0                     # Maximum engagement range
+    max_range: 50.0                     # Maximum engagement range
     ammo: 10                            # Starting ammunition
-    reload_time: 3                      # Timesteps to reload
-    shot_speed: 15.0                    # Projectile speed (units/timestep)
-    base_probability_of_kill: 0.85      # Base P(kill) before distance/speed factors
+    reload_time: 10                     # Timesteps to reload
+    shot_speed: 30.0                    # Projectile speed (units/timestep)
+    base_probability_of_kill: 0.90      # Base P(kill) before distance/speed factors
 
   KINETIC:
-    max_range: 30.0
+    max_range: 40.0
     ammo: 20
-    reload_time: 1
-    shot_speed: 8.0
-    base_probability_of_kill: 0.70
+    reload_time: 2
+    shot_speed: 2.0
+    base_probability_of_kill: 0.60
 
 # ============================================================================
 # ATTACKER SPAWN CONFIGURATION
 # ============================================================================
 attacker_spawn:
-  initial_count: 4                      # Number of attackers at episode start
+  initial_count: 10                      # Number of attackers at episode start
   spawn_probability_initial: 0.4        # Initial spawn probability per timestep
   spawn_probability_decay: 0.95         # Decay factor (multiplied each timestep)
 
@@ -80,7 +80,7 @@ attacker_spawn:
     - right
 
   # Attacker speed range
-  speed_min: 0.5
+  speed_min: 1.0
   speed_max: 2.0
 
   # Warhead mass range
@@ -91,7 +91,7 @@ attacker_spawn:
 # VISUALIZATION SETTINGS
 # ============================================================================
 visualization:
-  fps_delay: 0.1                        # plt.pause() value (lower=faster)
+  fps_delay: 0.2                        # plt.pause() value (lower=faster)
   figure_size: 10                       # Figure size in inches
   engagement_display_time: 10           # Timesteps to show engagement highlight
 

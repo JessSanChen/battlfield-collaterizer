@@ -40,25 +40,20 @@ class Defender:
 
     def probability_of_kill(self, distance: float, attacker_speed: float) -> float:
         """
-        Calculate probability of kill based on range and attacker state.
+        Calculate probability of kill based on range.
 
         Args:
             distance: Distance to target
-            attacker_speed: Speed of the attacker
+            attacker_speed: Speed of the attacker (unused, kept for API compatibility)
 
         Returns:
-            Probability of kill (0 to 1)
+            Probability of kill (0 to 1) - uses base_pk from config if in range
         """
         if distance > self.max_range:
             return 0.0
 
-        # Base probability decreases with distance
-        range_factor = 1.0 - (distance / self.max_range)
-
-        # Harder to hit fast-moving targets
-        speed_factor = 1.0 / (1.0 + attacker_speed * 0.1)
-
-        return range_factor * speed_factor * self.base_pk
+        # Simple: just use the base probability from config
+        return self.base_pk
 
     def can_shoot(self) -> bool:
         """Check if defender can shoot."""
@@ -309,20 +304,41 @@ class Projectile:
         if not self.active:
             return self.hit_result
 
+        # Store previous distance for closest approach detection
+        if not hasattr(self, 'prev_distance'):
+            self.prev_distance = float('inf')
+
         # Move projectile
         self.x += self.vx
         self.y += self.vy
         self.time_elapsed += 1
 
-        # Check if we've reached the target area (within small threshold)
+        # Check distance to target
         distance_to_target = np.sqrt((self.x - attacker_x)**2 + (self.y - attacker_y)**2)
 
-        # If we're close enough or exceeded time to target, resolve hit/miss
-        if distance_to_target < 2.0 or self.time_elapsed >= self.time_to_target + 1:
+        # Relaxed hitbox: 8 units is generous enough to register hits
+        # This ensures P(kill) is the dominant factor, not geometric precision
+        HIT_THRESHOLD = 8.0
+
+        # Detect if we've reached closest approach (distance starting to increase)
+        closest_approach = distance_to_target > self.prev_distance
+
+        # Resolve hit/miss if:
+        # 1. Within generous hit threshold, OR
+        # 2. Passed closest approach (projectile is now moving away), OR
+        # 3. Exceeded time to target
+        if (distance_to_target < HIT_THRESHOLD or
+            closest_approach or
+            self.time_elapsed >= self.time_to_target + 2):
+
             self.active = False
             # Roll for hit based on probability of kill
+            # Now P(kill) is the dominant factor, not hitbox precision
             self.hit_result = np.random.random() < self.pk
             return self.hit_result
+
+        # Update previous distance for next iteration
+        self.prev_distance = distance_to_target
 
         return None
 
